@@ -177,6 +177,9 @@ button{font:inherit;color:inherit}
 .veh.west{flex-direction:row-reverse}
 .veh .tg{font:700 11px/1 var(--display);letter-spacing:.03em;border-radius:3px;padding:2px 4px 1px;white-space:nowrap}
 .pill.mini{position:absolute;left:0;top:0;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;border:2px solid var(--ok);box-shadow:0 1px 4px rgba(0,0,0,.6)}
+.veh .dly,.pill .dly{position:absolute;left:50%;bottom:calc(100% + 2px);transform:translateX(-50%);font:700 10.5px/1 var(--mono);white-space:nowrap;
+  padding:1px 3px;border-radius:3px;background:color-mix(in srgb,var(--bg) 78%,transparent);text-shadow:0 0 2px var(--bg)}
+.veh.west .dly{transform:translateX(-50%)}
 .train.sel .veh,.train.sel .pill{outline:2.5px solid var(--fg);outline-offset:3px}
 .st-label{background:transparent;border:0;box-shadow:none;color:var(--fg);font:600 12px/1 var(--display);letter-spacing:.04em;padding:0;
   text-shadow:0 0 3px var(--bg),0 0 3px var(--bg),0 0 6px var(--bg)}

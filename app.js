@@ -92,10 +92,12 @@ function cleanName(n){ return n.replace(/\s*\(.*?\)\s*/g," ").trim(); }
 function delayColor(d, rt){ if (!rt) return getCss("--muted"); return d>=6 ? getCss("--bad") : d>=3 ? getCss("--warn") : getCss("--ok"); }
 function iconFor(tr, pos){
   const col = colorFor(tr.ref), dc = delayColor(pos.delay,pos.rt), sel = state.sel === tr.id ? " sel" : "";
-  if (!S.pics || map.getZoom() < 9.25) return L.divIcon({className:"train"+sel, iconSize:[0,0], html:`<div class="pill mini" style="background:${col};border-color:${dc}"></div>`});
+  // kleine Verspätungsangabe über dem Symbol: +3 / −1 / +0 (nur mit Echtzeit)
+  const dly = pos.rt ? `<span class="dly" style="color:${dc}">${pos.delay < 0 ? "−" + (-pos.delay) : "+" + pos.delay}</span>` : "";
+  if (!S.pics || map.getZoom() < 9.25) return L.divIcon({className:"train"+sel, iconSize:[0,0], html:`<div class="pill mini" style="background:${col};border-color:${dc}">${dly}</div>`});
   const type = typeOf(tr), lv = liveryOf(tr, type), z = map.getZoom(), h = z >= 13 ? 20 : z >= 11 ? 16 : 13;
   return L.divIcon({className:"train"+sel, iconSize:[0,0],
-    html:`<div class="veh${pos.heading>=0?"":" west"}" style="--dc:${dc}"><span class="pic">${trainSvg(type, lv, h)}</span><span class="tg" style="background:${col};color:${textOn(col)}">${esc(tr.ref)}</span></div>`});
+    html:`<div class="veh${pos.heading>=0?"":" west"}" style="--dc:${dc}">${dly}<span class="pic">${trainSvg(type, lv, h)}</span><span class="tg" style="background:${col};color:${textOn(col)}">${esc(tr.ref)}</span></div>`});
 }
 function setStatus(kind){ document.getElementById("sdot").className = "dot " + kind; }
 
@@ -109,7 +111,7 @@ function tick(){
     const vis = (S.fv || tr.cat !== "FV") && (!state.focus || tr.key === state.focus);
     const sig = [pos.heading>=0, pos.delay, pos.rt, map.getZoom(), state.sel===tr.id, !!tr.detail, S.pics].join("|");
     if (!tr.marker){ tr.marker = L.marker([pos.lat,pos.lon],{pane:"trainPane",icon:iconFor(tr,pos),keyboard:false}); tr.marker.on("click", () => openTrain(tr.id)); tr.sig = sig; }
-    else { tr.marker.setLatLng([pos.lat,pos.lon]); if (tr.sig !== sig){ tr.marker.setIcon(iconFor(tr,pos)); tr.sig = sig; } }
+    else if (tr.sig !== sig){ tr.marker.setIcon(iconFor(tr,pos)); tr.sig = sig; }   // Position setzt animateTrains()
     if (vis && !trainLayer.hasLayer(tr.marker)) trainLayer.addLayer(tr.marker);
     if (!vis && trainLayer.hasLayer(tr.marker)) trainLayer.removeLayer(tr.marker);
   }
@@ -390,5 +392,6 @@ map.on("dragstart", () => { if (state.follow){ state.follow = false; const b = d
 applyView();
 fetchLive().then(tick);
 setInterval(tick, 1000);
+requestAnimationFrame(animateTrains);
 setInterval(fetchLive, 20000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden){ fetchLive().then(tick); if (view.kind === "board") loadBoard(true); } });

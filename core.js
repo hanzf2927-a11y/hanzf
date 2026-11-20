@@ -282,7 +282,7 @@ async function fetchLive(){
     for (const [id,tr] of fresh){
       tr.segs.sort((a,b)=>a.dep-b.dep);
       const old = trains.get(id);
-      if (old){ tr.marker = old.marker; tr.heading = old.heading; tr.detail = old.detail; tr.headsign = old.headsign; tr.stale = old.stale; tr.detailQueued = old.detailQueued; }
+      if (old){ tr.marker = old.marker; tr.heading = old.heading; tr.detail = old.detail; tr.headsign = old.headsign; tr.stale = old.stale; tr.detailQueued = old.detailQueued; tr.disp = old.disp; }
       trains.set(id, tr);
     }
     for (const [id,tr] of trains) if (!fresh.has(id)){ if (tr.marker) trainLayer.removeLayer(tr.marker); trains.delete(id); }
@@ -293,24 +293,79 @@ async function fetchLive(){
   }finally{ fetching = false; }
 }
 
+/* Position eines Zuges zum Zeitpunkt t.
+   - Abfahrt exakt zur (Echtzeit-)Abfahrtszeit.
+   - Halt am Bahnhof: Ist im Plan kein Aufenthalt (Ankunft = Abfahrt, Minutenraster),
+     rollt der Zug spätestens MIN_DWELL vor der Abfahrt ein und steht dann.
+   - Fahrt mit Anfahren und Bremsen (trapezförmiges Geschwindigkeitsprofil). */
+const MIN_DWELL = 45e3, ACC = 0.2;
+function motion(f){
+  if (f <= 0) return 0; if (f >= 1) return 1;
+  const v = 1/(1-ACC);
+  if (f < ACC) return v*f*f/(2*ACC);
+  if (f < 1-ACC) return v*(ACC/2 + (f-ACC));
+  const g = 1-f; return 1 - v*g*g/(2*ACC);
+}
+function prepSegs(tr){
+  if (tr._prep) return; tr._prep = true;
+  const S = tr.segs;
+  for (let i = 0; i < S.length; i++){
+    const s = S[i], n = S[i+1];
+    s.arrEff = s.arr;
+    if (n && n.from === s.to && n.dep - s.arr < MIN_DWELL){
+      // früher einrollen, aber höchstens die halbe Fahrzeit des Abschnitts opfern
+      s.arrEff = Math.max(s.dep + (s.arr - s.dep)*0.5, n.dep - MIN_DWELL);
+    }
+    if (s.arrEff <= s.dep) s.arrEff = s.dep + 1;
+  }
+}
 function positionOf(tr, t){
   const S = tr.segs; if (!S.length) return null;
-  let seg = null, frac = 0, dwell = false, delay = 0;
-  if (t < S[0].dep){ seg=S[0]; frac=0; dwell=true; }
+  prepSegs(tr);
+  let seg = null, frac = 0, dwell = false, idx = 0;
+  if (t < S[0].dep){ seg = S[0]; frac = 0; dwell = true; }
   else {
-    for (let i=0;i<S.length;i++){
+    for (let i = 0; i < S.length; i++){
       const s = S[i];
-      if (t >= s.dep && t <= s.arr){ seg=s; frac = s.arr>s.dep ? (t-s.dep)/(s.arr-s.dep) : 1; break; }
-      if (t > s.arr && (i===S.length-1 || t < S[i+1].dep)){ seg=s; frac=1; dwell=true; if (i===S.length-1 && t - s.arr > 4*60e3) return null; break; }
+      if (t >= s.dep && t <= s.arrEff){ seg = s; idx = i; frac = motion((t - s.dep)/(s.arrEff - s.dep)); break; }
+      if (t > s.arrEff && (i === S.length-1 || t < S[i+1].dep)){ seg = s; idx = i; frac = 1; dwell = true; if (i === S.length-1 && t - s.arr > 4*60e3) return null; break; }
     }
   }
   if (!seg) return null;
-  delay = Math.round(((dwell && frac===1 ? seg.arr - seg.sarr : seg.dep - seg.sdep))/60e3);
-  const target = frac*seg.len; const c = seg.cum, p = seg.pts;
+  // Verspätung: beim Halt die Abfahrtsverspätung des nächsten Abschnitts, sonst die des aktuellen
+  const nxt = dwell && frac === 1 ? S[idx+1] : null;
+  const delay = Math.round((nxt ? nxt.dep - nxt.sdep : dwell && frac === 1 ? seg.arr - seg.sarr : seg.dep - seg.sdep)/60e3);
+  const target = frac*seg.len, c = seg.cum, p = seg.pts;
   let j = 1; while (j < c.length-1 && c[j] < target) j++;
-  const a=p[j-1], b=p[j], sl=c[j]-c[j-1]; const f = sl>0 ? (target-c[j-1])/sl : 0;
+  const a = p[j-1], b = p[j], sl = c[j]-c[j-1], f = sl > 0 ? (target-c[j-1])/sl : 0;
   const lat = a[0]+(b[0]-a[0])*f, lon = a[1]+(b[1]-a[1])*f;
   const hd = Math.atan2((b[1]-a[1])*Math.cos(lat*Math.PI/180), b[0]-a[0])*180/Math.PI;
-  const nextStop = frac===1 && dwell ? (S[S.indexOf(seg)+1]||seg).to : seg.to;
-  return {lat, lon, heading: hd, delay, dwell, at: dwell ? (frac===0?seg.from:seg.to) : null, next: nextStop, from: seg.from, rt: seg.rt};
+  const nextStop = dwell && frac === 1 ? (S[idx+1] || seg).to : seg.to;
+  return {lat, lon, heading: hd, delay, dwell, at: dwell ? (frac === 0 ? seg.from : seg.to) : null, next: nextStop, from: seg.from, rt: seg.rt};
+}
+
+/* Gleitende Darstellung: Markierungen ~30-mal pro Sekunde versetzen.
+   Neue Echtzeitdaten verschieben die Sollposition; der Unterschied klingt in ~1 s weich aus. */
+let _lastFrame = 0;
+function animateTrains(now){
+  requestAnimationFrame(animateTrains);
+  stepTrains(now);
+}
+// Absicherung: liefert der Browser keine Animations-Frames (Stromsparen, Hintergrund), weiter per Zeitgeber
+setInterval(() => { const now = performance.now(); if (now - _lastFrame > 200) stepTrains(now); }, 100);
+function stepTrains(now){
+  if (now - _lastFrame < 33) return;
+  const dt = _lastFrame ? Math.min(now - _lastFrame, 500) : 33; _lastFrame = now;
+  const t = Date.now(), k = Math.exp(-dt/350);
+  for (const tr of trains.values()){
+    if (!tr.marker || !trainLayer.hasLayer(tr.marker)) continue;
+    const p = positionOf(tr, t); if (!p) continue;
+    if (!tr.offInit){
+      tr.offInit = true; tr.off = [0,0];
+      if (tr.disp){ const d0 = tr.disp[0]-p.lat, d1 = tr.disp[1]-p.lon; if (Math.hypot(d0,d1) < 0.03) tr.off = [d0,d1]; }
+    }
+    tr.off[0] *= k; tr.off[1] *= k;
+    tr.disp = [p.lat + tr.off[0], p.lon + tr.off[1]];
+    tr.marker.setLatLng(tr.disp);
+  }
 }
