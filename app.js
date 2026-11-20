@@ -51,6 +51,29 @@ let base = null;
 const trainLayer = L.layerGroup().addTo(map);
 const netLayer = L.layerGroup().addTo(map);
 const stLayer = L.layerGroup().addTo(map);
+/* Fahrtroute des angetippten Zugs (über dem Netz, unter Bahnhöfen und Zügen) */
+map.createPane("routePane").style.zIndex = 415;
+const routeLayer = L.layerGroup().addTo(map);
+let routeFor = null, routeTr = null;
+function showRoute(tr){
+  const leg = tr && tr.detail; if (!leg || routeFor === tr.id + leg.legGeometry?.length) return;
+  routeLayer.clearLayers(); routeFor = tr.id + leg.legGeometry?.length; routeTr = tr;
+  let pts = [];
+  const g = leg.legGeometry;
+  if (g && g.points){ pts = decodePolyline(g.points, g.precision || 7);
+    if (pts.length && Math.abs(pts[0][0] - leg.from.lat) > 1) pts = decodePolyline(g.points, 6); }
+  const stops = [leg.from, ...(leg.intermediateStops||[]), leg.to];
+  if (pts.length < 2) pts = stops.map(s => [s.lat, s.lon]);
+  const col = colorFor(tr.ref), z = map.getZoom(), w = widthFor(z) + 1.6, renderer = L.svg({pane:"routePane", padding:.6});
+  routeLayer.addLayer(new L.OffsetLine(pts, {renderer, color:col, weight:w+9, opacity:.22, lineCap:"round", lineJoin:"round", interactive:false}));   // Leuchtrand
+  routeLayer.addLayer(new L.OffsetLine(pts, {renderer, color:getCss("--bg"), weight:w+3, opacity:.95, lineCap:"round", lineJoin:"round", interactive:false}));
+  routeLayer.addLayer(new L.OffsetLine(pts, {renderer, color:col, weight:w, opacity:1, lineCap:"round", lineJoin:"round", interactive:false}));
+  for (const s of stops){
+    if (s.lat == null) continue;
+    routeLayer.addLayer(L.circleMarker([s.lat, s.lon], {pane:"routePane", renderer, radius: Math.max(3, w*.75), color:col, weight:2.5, fillColor:"#fff", fillOpacity:1, interactive:false}));
+  }
+}
+function clearRoute(){ routeLayer.clearLayers(); routeFor = null; routeTr = null; }
 const getCss = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const segs = D.segs.map(([ids, flat]) => { const ll = []; for (let i=0;i<flat.length;i+=2) ll.push([flat[i],flat[i+1]]); return {ids, ll}; });
 const state = {sel:null, follow:false, focus:null};
@@ -67,9 +90,31 @@ function applyView(){
 mqDark.addEventListener && mqDark.addEventListener("change", () => { if (S.theme === "auto") applyView(); });
 
 function widthFor(z){ return z<9?1.6 : z<10?2.2 : z<11?3 : z<12?3.6 : z<13?4.4 : 5.2; }
+/* Farben des neutralen Schienennetzes, abgestimmt auf Kartenstil und Farbschema */
+function railStyle(){
+  if (S.base === "satellite") return {rail:"#f4f6f8", cas:"rgba(10,14,20,.75)", fv:"#d3d9e0"};
+  const light = S.base === "light" || (S.base === "none" && effTheme() === "light");
+  return light ? {rail:"#3c4554", cas:"#ffffff", fv:"#7a8494"} : {rail:"#b9c3d0", cas:"#0b0f14", fv:"#7d8794"};
+}
 function drawNetwork(){
   netLayer.clearLayers();
-  const z = map.getZoom(), w = widthFor(z), gap = w*.95, renderer = L.svg({pane:"netPane", padding:.6});
+  const z = map.getZoom(), w = widthFor(z), renderer = L.svg({pane:"netPane", padding:.6});
+  if (!state.focus){
+    // Neutrales Netz: eine Linie pro Strecke, Hauptachsen (mehrere Linien) etwas breiter
+    const rs = railStyle(), items = [];
+    for (const s of segs){
+      const ls = s.ids.map(i => D.lines[i]);
+      const n = ls.filter(l => l.cat !== "FV").length, fvOnly = !n;
+      if (fvOnly && !S.fv) continue;
+      const rw = fvOnly ? Math.max(1.3, w*.6) : w*.62*(n >= 4 ? 1.6 : n >= 2 ? 1.3 : 1);
+      items.push([s, rw, fvOnly]);
+    }
+    for (const [s, rw] of items) netLayer.addLayer(new L.OffsetLine(s.ll,{renderer,color:rs.cas,weight:rw+2.6,opacity:1,lineCap:"round",lineJoin:"round",interactive:false}));
+    for (const [s, rw, fvOnly] of items) netLayer.addLayer(new L.OffsetLine(s.ll,{renderer,color:fvOnly ? rs.fv : rs.rail,weight:rw,opacity:1,lineCap:"round",lineJoin:"round",dashArray: fvOnly && z >= 10 ? `${rw*3} ${rw*2}` : null,interactive:false}));
+    return;
+  }
+  // „Nur Linie …“: diese Linie farbig wie im Netzplan
+  const gap = w*.95;
   for (const s of segs){
     const ls = s.ids.map(i => D.lines[i]);
     const reg = ls.filter(l => l.cat !== "FV" && (!state.focus || state.focus === l.key));
@@ -101,7 +146,7 @@ function cleanName(n){ return n.replace(/\s*\(.*?\)\s*/g," ").trim(); }
 /* ---------- Züge auf der Karte ---------- */
 function delayColor(d, rt){ if (!rt) return getCss("--muted"); return d>=6 ? getCss("--bad") : d>=3 ? getCss("--warn") : getCss("--ok"); }
 function iconFor(tr, pos){
-  const col = colorFor(tr.ref), dc = delayColor(pos.delay,pos.rt), sel = state.sel === tr.id ? " sel" : "";
+  const col = colorFor(tr.ref), dc = delayColor(pos.delay,pos.rt), sel = state.sel === tr.id ? " sel" : state.sel ? " dim" : "";
   // kleine Verspätungsangabe über dem Symbol: +3 / −1 / +0 (nur mit Echtzeit)
   const dly = pos.rt ? `<span class="dly" style="color:${dc}">${pos.delay < 0 ? "−" + (-pos.delay) : "+" + pos.delay}</span>` : "";
   if (!S.pics || map.getZoom() < 9.25) return L.divIcon({className:"train"+sel, iconSize:[0,0], html:`<div class="pill mini" style="background:${col};border-color:${dc}">${dly}</div>`});
@@ -119,7 +164,7 @@ function tick(){
     if (!inBox){ if (tr.marker) trainLayer.removeLayer(tr.marker); tr.pos = null; continue; }
     tr.pos = pos; queueDetail(tr);
     const vis = (S.fv || tr.cat !== "FV") && (!state.focus || tr.key === state.focus);
-    const sig = [pos.heading>=0, pos.delay, pos.rt, map.getZoom(), state.sel===tr.id, !!tr.detail, S.pics].join("|");
+    const sig = [pos.heading>=0, pos.delay, pos.rt, map.getZoom(), state.sel===tr.id, !!state.sel, !!tr.detail, S.pics].join("|");
     if (!tr.marker){ tr.marker = L.marker([pos.lat,pos.lon],{pane:"trainPane",icon:iconFor(tr,pos),keyboard:false}); tr.marker.on("click", () => openTrain(tr.id)); tr.sig = sig; }
     else if (tr.sig !== sig){ tr.marker.setIcon(iconFor(tr,pos)); tr.sig = sig; }   // Position setzt animateTrains()
     if (vis && !trainLayer.hasLayer(tr.marker)) trainLayer.addLayer(tr.marker);
@@ -142,7 +187,7 @@ function openSheet(html, kind, full){
 }
 function closeSheet(){
   sheet.classList.remove("open","full"); view = {kind:null};
-  if (state.sel){ state.sel = null; state.follow = false; for (const t of trains.values()) t.sig = null; }
+  if (state.sel){ state.sel = null; state.follow = false; for (const t of trains.values()) t.sig = null; } clearRoute();
   setTab("map", true);
 }
 // Ziehen am Griff: hoch = voll, runter = halb bzw. schließen
@@ -231,6 +276,7 @@ async function openTrain(id, refresh){
 }
 function renderTrain(tr, scrollToNext){
   const keep = view.kind === "train" ? body.scrollTop : 0;
+  if (state.sel === tr.id) showRoute(tr);
   const leg = tr.detail, col = colorFor(tr.ref), agency = leg ? (leg.agencyName||"") : "";
   const type = typeOf(tr), T = TYPES[type], lv = liveryOf(tr, type), ph = photoCache[photoKey(type, agency)];
   const p = tr.pos;
@@ -306,7 +352,7 @@ let board = null;   // {st, stopId, mode:"dep"|"arr", rows}
 async function openStation(st){
   setTab("stations");
   board = {st, stopId:null, mode: board && board.st === st ? board.mode : "dep", rows:null};
-  if (state.sel){ state.sel = null; state.follow = false; for (const t of trains.values()) t.sig = null; }
+  if (state.sel){ state.sel = null; state.follow = false; for (const t of trains.values()) t.sig = null; } clearRoute();
   renderBoard();
   setTimeout(() => panAbove([st[1], st[2]], Math.max(map.getZoom(), 12.5)), 60);
   loadBoard();
@@ -396,7 +442,7 @@ document.getElementById("fab-home").onclick = () => { setFocus(null); map.fitBou
 /* ---------- Helfer & Start ---------- */
 function fmt(ms){ return new Date(ms).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"}); }
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-map.on("zoomend", () => { drawNetwork(); drawStations(); for (const t of trains.values()) t.sig = null; tick(); });
+map.on("zoomend", () => { drawNetwork(); drawStations(); if (routeTr){ const rt = routeTr; routeFor = null; showRoute(rt); } for (const t of trains.values()) t.sig = null; tick(); });
 map.on("dragstart", () => { if (state.follow){ state.follow = false; const b = document.getElementById("bf"); if (b) b.setAttribute("aria-pressed","false"); } });
 
 applyView();
