@@ -20,8 +20,18 @@ function effTheme(){ return S.theme === "auto" ? (mqDark.matches ? "dark" : "lig
 })();
 
 /* ---------- Karte ---------- */
-const map = L.map("map", {zoomControl:false, minZoom:8, maxZoom:17, zoomSnap:.25, tap:true, attributionControl:true});
+const map = L.map("map", {zoomControl:false, minZoom:8, maxZoom:17, zoomSnap:.25, tap:true, attributionControl:true, maxBoundsViscosity:1});
 const HOME = [[50.98,11.75],[51.62,12.95]];
+// Karte auf das MDV-Gebiet begrenzen: nicht darüber hinaus schieben und nur so weit herauszoomen,
+// dass der Bildschirm noch ganz vom Netz ausgefüllt ist.
+const MDV_BOUNDS = L.latLngBounds([[BBOX.s, BBOX.w], [BBOX.n, BBOX.e]]);
+map.setMaxBounds(MDV_BOUNDS);
+function fitMinZoom(){
+  const z = map.getBoundsZoom(MDV_BOUNDS, true);
+  map.setMinZoom(Math.max(7, Math.ceil(z*4)/4));
+}
+fitMinZoom();
+map.on("resize", fitMinZoom);
 map.fitBounds(HOME, {padding:[10,10]});
 map.createPane("netPane").style.zIndex = 410;
 map.createPane("stPane").style.zIndex = 420;
@@ -64,9 +74,9 @@ function drawNetwork(){
     const ls = s.ids.map(i => D.lines[i]);
     const reg = ls.filter(l => l.cat !== "FV" && (!state.focus || state.focus === l.key));
     const fv = S.fv && !state.focus && ls.some(l => l.cat === "FV");
-    if (fv && !reg.length) netLayer.addLayer(L.polyline(s.ll,{renderer,color:"#7d8794",weight:Math.max(1.4,w*.7),opacity:.75,interactive:false}));
+    if (fv && !reg.length) netLayer.addLayer(new L.OffsetLine(s.ll,{renderer,color:"#7d8794",weight:Math.max(1.4,w*.7),opacity:.75,lineJoin:"round",interactive:false}));
     if (!reg.length) continue;
-    netLayer.addLayer(L.polyline(s.ll,{renderer,color: fv ? "#7d8794" : getCss("--bg"),weight:reg.length*gap+(fv?4:2.5),opacity:.9,lineCap:"butt",interactive:false}));
+    netLayer.addLayer(new L.OffsetLine(s.ll,{renderer,color: fv ? "#7d8794" : getCss("--bg"),weight:reg.length*gap+(fv?4:2.5),opacity:.9,lineCap:"butt",lineJoin:"round",interactive:false}));
     reg.forEach((l,i) => netLayer.addLayer(new L.OffsetLine(s.ll,{renderer,offset:(i-(reg.length-1)/2)*gap,color:l.color,weight:w,lineCap:"butt",lineJoin:"round",interactive:false})));
   }
 }

@@ -208,8 +208,13 @@ L.OffsetLine = L.Polyline.extend({
   options:{offset:0},
   _projectLatlngs(latlngs, result, projectedBounds){
     L.Polyline.prototype._projectLatlngs.call(this, latlngs, result, projectedBounds);
-    const o = this.options.offset; if (!o) return;
-    for (let r = 0; r < result.length; r++) result[r] = offsetPts(result[r], o);
+    // Erst auf Bildschirmauflösung vereinfachen (Knicke unter ~1,5 px fallen weg), dann versetzen.
+    // Sonst erzeugt der Versatz entlang winziger Gleisknicke beim Herauszoomen ein Zickzack.
+    const o = this.options.offset, tol = this.options.simplifyPx || 1.5;
+    for (let r = 0; r < result.length; r++){
+      let pts = result[r].length > 2 ? L.LineUtil.simplify(result[r], tol) : result[r];
+      result[r] = o ? offsetPts(pts, o) : pts;
+    }
   }
 });
 function offsetPts(pts, d){
