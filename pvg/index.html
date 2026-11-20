@@ -51,6 +51,7 @@ button{font:inherit;color:inherit}
 #top .brand{display:flex;align-items:center;gap:7px;font:700 20px/1 var(--display);letter-spacing:.04em;text-transform:uppercase}
 #top .brand svg{height:20px;width:auto}
 #top .brand span{color:var(--accent)}
+#top .brand .pvglogo{height:28px;width:auto;background:#fff;border-radius:6px;padding:2px 5px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 #top .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
 #top .dot.live{background:var(--ok);animation:pulse 2s infinite}
 #top .dot.err{background:var(--bad)}
@@ -196,8 +197,7 @@ button{font:inherit;color:inherit}
 
 <header id="top">
   <div class="brand">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="2.5" width="16" height="16" rx="3.5" fill="#f8b608"/><rect x="6.2" y="5" width="11.6" height="6" rx="1.2" fill="#141b24"/><circle cx="8.3" cy="14.8" r="1.3" fill="#141b24"/><circle cx="15.7" cy="14.8" r="1.3" fill="#141b24"/><rect x="6" y="18.5" width="3" height="3" rx="1" fill="#f8b608"/><rect x="15" y="18.5" width="3" height="3" rx="1" fill="#f8b608"/></svg>
-    PVG <span>Live</span><i class="dot" id="sdot"></i>
+    <img class="pvglogo" src="pvg-logo.png" alt="PVG Burgenlandkreis" width="45" height="28"><span>Live</span><i class="dot" id="sdot"></i>
   </div>
   <div class="clock" id="clock">--:--</div>
 </header>
