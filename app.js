@@ -291,14 +291,16 @@ function renderTrain(tr, scrollToNext){
     const t = s.cancelled ? `<span class="cn">${fmt(sched)}</span>` : dly ? `<s>${fmt(sched)}</s><span class="${tc}">${fmt(real)}</span>` : `<span class="${tc}">${fmt(sched)}</span>`;
     return `<li class="${cls}"><span class="tk"></span><span class="stn" data-lat="${s.lat}" data-lon="${s.lon}" data-name="${esc(s.name)}">${esc(shortStop(s.name))}${s.track ? ` <span class="muted" style="font-size:12px">Gl. ${esc(s.track)}</span>` : ""}</span><span class="t">${t}</span></li>`;
   }).join("");
-  openSheet(`<div class="photo" id="photo">${ph ? photoHtml(ph, T) : trainSvg(type, lv, 50)}</div>
-    <div class="sh-h"><span class="badge" style="background:${col};color:${textOn(col)};font-size:16px">${esc(tr.ref)}</span><h2>${leg ? "→ " + esc(shortStop(leg.headsign || leg.to.name)) : "Lade…"}</h2><button class="x" aria-label="Schließen" onclick="closeSheet()">×</button></div>
+  // Reihenfolge: Kopf mit Ziel und Status → Fahrplan → Fahrzeug (Foto und Zugtyp) ganz unten
+  openSheet(`<div class="sh-h"><span class="badge" style="background:${col};color:${textOn(col)};font-size:16px">${esc(tr.ref)}</span><h2>${leg ? "→ " + esc(shortStop(leg.headsign || leg.to.name)) : "Lade…"}</h2><button class="x" aria-label="Schließen" onclick="closeSheet()">×</button></div>
     <div class="sub">${status} · ${dl}</div>
     <div class="sub">${esc(agency)}${leg && leg.tripShortName && leg.tripShortName !== tr.ref ? " · Zug " + esc(leg.tripShortName) : ""}</div>
     <div class="btnrow"><button id="bf" aria-pressed="${state.follow}" ${p ? "" : "disabled"}>Zug folgen</button><button id="bl">Nur Linie ${esc(tr.ref)}</button></div>
-    <div class="vbox"><div class="vn">${trainSvg(type, lv, 15)}<span>${esc(T.name)}</span></div><div class="vb">${esc([T.kind, T.br].filter(Boolean).join(" · "))}</div>
-      <p>${esc(T.desc)}</p><div class="note">Typisches Fahrzeug auf dieser Linie, im Einzelfall kann ein anderer Zug fahren.${T.wiki ? ` <a href="https://de.wikipedia.org/wiki/${T.wiki}" target="_blank" rel="noopener">Wikipedia</a>` : ""}</div></div>
-    <div class="sec">Fahrtverlauf</div>${leg ? `<ol class="stops">${li}</ol>` : `<div class="empty">Wird geladen…</div>`}`, "train");
+    <div class="sec">Fahrplan</div>${leg ? `<ol class="stops">${li}</ol>` : `<div class="empty">Wird geladen…</div>`}
+    <div class="sec">Fahrzeug</div>
+    <div class="photo vphoto" id="photo">${ph ? photoHtml(ph, T) : trainSvg(type, lv, 50)}</div>
+    <div class="vbox" style="margin-top:0"><div class="vn">${trainSvg(type, lv, 15)}<span>${esc(T.name)}</span></div><div class="vb">${esc([T.kind, T.br].filter(Boolean).join(" · "))}</div>
+      <p>${esc(T.desc)}</p><div class="note">Typisches Fahrzeug auf dieser Linie, im Einzelfall kann ein anderer Zug fahren.${T.wiki ? ` <a href="https://de.wikipedia.org/wiki/${T.wiki}" target="_blank" rel="noopener">Wikipedia</a>` : ""}</div></div>`, "train");
   document.getElementById("bf").onclick = e => { state.follow = !state.follow; e.target.setAttribute("aria-pressed", state.follow); };
   document.getElementById("bl").onclick = () => { setFocus(state.focus === tr.key ? null : tr.key); };
   body.querySelectorAll(".stn").forEach(el => el.onclick = () => {
